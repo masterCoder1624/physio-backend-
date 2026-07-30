@@ -1,3 +1,4 @@
+import os
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
@@ -6,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.database.connection import connect_to_mongo, close_mongo_connection, db
 from app.api.routes import auth_router, patients_router, payments_router
+from keep_alive import start_keep_alive, stop_keep_alive
 
 # Setup Logging
 logging.basicConfig(
@@ -17,14 +19,33 @@ logger = logging.getLogger("physioverse")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan context for MongoDB Atlas connection management."""
-    logger.info("Initializing MongoDB Atlas connection...")
-    await connect_to_mongo()
-    logger.info("MongoDB Atlas initialization complete.")
-    yield
-    logger.info("Closing MongoDB Atlas connection...")
-    await close_mongo_connection()
-    logger.info("Shutdown complete.")
+    """Application lifespan managing MongoDB Atlas and Render Keep-Alive background service."""
+    try:
+        logger.info("🚀 Application startup...")
+
+        # Connect MongoDB Atlas
+        await connect_to_mongo()
+
+        # Start Keep-Alive Service in production or when explicitly configured
+        if settings.ENVIRONMENT == "production" or os.getenv("RENDER_BACKEND_URL") is not None:
+            keep_alive_url = os.getenv("RENDER_BACKEND_URL", settings.RENDER_BACKEND_URL)
+            logger.info(f"Starting keep-alive service for: {keep_alive_url}")
+            start_keep_alive(keep_alive_url)
+            logger.info("✅ Keep-alive service started")
+
+        logger.info("✅ All systems ready!")
+        yield
+    except Exception as e:
+        logger.error(f"❌ Startup failed: {e}")
+        raise
+    finally:
+        logger.info("🛑 Application shutdown...")
+        if settings.ENVIRONMENT == "production" or os.getenv("RENDER_BACKEND_URL") is not None:
+            stop_keep_alive()
+            logger.info("✅ Keep-alive service stopped")
+
+        await close_mongo_connection()
+        logger.info("Shutdown complete.")
 
 
 app = FastAPI(

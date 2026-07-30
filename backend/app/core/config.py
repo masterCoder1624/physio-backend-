@@ -13,6 +13,11 @@ class Settings:
     DEBUG: bool = os.getenv("DEBUG", "true").lower() == "true"
     API_V1_STR: str = os.getenv("API_V1_STR", "/api/v1")
 
+    # Render Deployment Keep-Alive Settings
+    RENDER_BACKEND_URL: str = os.getenv(
+        "RENDER_BACKEND_URL", "https://physioverse-backend.onrender.com"
+    )
+
     # JWT / Auth
     JWT_SECRET: str = os.getenv("JWT_SECRET", "super-secret-key-change-this-in-production-physioverse-2026")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
@@ -56,6 +61,7 @@ class Settings:
         print(f"✓ PROJECT_NAME: {self.PROJECT_NAME}")
         print(f"✓ ENVIRONMENT: {self.ENVIRONMENT}")
         print(f"✓ DEBUG: {self.DEBUG}")
+        print(f"✓ RENDER_BACKEND_URL: {self.RENDER_BACKEND_URL}")
         print(f"✓ MongoDB URL (first 60 chars): {self.MONGODB_URL[:60]}...")
         print(f"✓ CORS Origins: {self.BACKEND_CORS_ORIGINS}")
         print("=" * 80 + "\n")

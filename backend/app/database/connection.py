@@ -1,5 +1,7 @@
 import logging
+import re
 from typing import AsyncGenerator, Optional
+import certifi
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from app.core.config import settings
 
@@ -15,22 +17,34 @@ class MongoDB:
 db = MongoDB()
 
 
-async def connect_to_mongo():
-    """Connect to MongoDB Atlas and initialize collection indexes."""
-    try:
-        logger.info("Connecting to MongoDB Atlas...")
-        logger.debug(f"Connection URL: {settings.MONGODB_URL[:80]}...")
+def _sanitize_uri(uri: str) -> str:
+    """Mask password in MongoDB connection URI for secure logging."""
+    return re.sub(r"://([^:]+):([^@]+)@", r"://\1:****@", uri)
 
-        db.client = AsyncIOMotorClient(
-            settings.MONGODB_URL,
-            maxPoolSize=50,
-            minPoolSize=10,
-            serverSelectionTimeoutMS=10000,
-            connectTimeoutMS=10000,
-        )
+
+async def connect_to_mongo():
+    """Connect to MongoDB Atlas with valid CA certificates and initialize collection indexes."""
+    try:
+        masked_uri = _sanitize_uri(settings.MONGODB_URL)
+        logger.info("Connecting to MongoDB Atlas...")
+        logger.debug(f"Connection URI: {masked_uri[:80]}...")
+
+        # PyMongo / Motor client configuration with explicit certifi CA bundle
+        client_kwargs = {
+            "maxPoolSize": 50,
+            "minPoolSize": 10,
+            "serverSelectionTimeoutMS": 10000,
+            "connectTimeoutMS": 10000,
+        }
+
+        # Apply certifi CA bundle for TLS/SSL connections to prevent Linux/Render OpenSSL TLS handshake failures
+        if "mongodb+srv://" in settings.MONGODB_URL or "tls=true" in settings.MONGODB_URL.lower() or "ssl=true" in settings.MONGODB_URL.lower():
+            client_kwargs["tlsCAFile"] = certifi.where()
+
+        db.client = AsyncIOMotorClient(settings.MONGODB_URL, **client_kwargs)
         db.db = db.client[settings.DATABASE_NAME]
 
-        # Test connection
+        # Test connection ping
         await db.client.admin.command("ping")
         logger.info("✅ MongoDB Atlas connection successful")
         logger.info(f"✅ Database connected: {db.db.name}")
@@ -40,8 +54,9 @@ async def connect_to_mongo():
         logger.info("✅ Database indexes created")
 
     except Exception as e:
+        masked_uri = _sanitize_uri(settings.MONGODB_URL)
         logger.error(f"❌ MongoDB connection failed: {str(e)}")
-        logger.error(f"Connection string (partial): {settings.MONGODB_URL[:100]}...")
+        logger.error(f"Connection URI (sanitized): {masked_uri[:80]}...")
         raise
 
 

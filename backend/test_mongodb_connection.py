@@ -1,6 +1,8 @@
 import asyncio
 import os
+import re
 import sys
+import certifi
 from dotenv import load_dotenv
 
 # Reconfigure stdout/stderr encoding for Windows console compatibility
@@ -12,36 +14,43 @@ if sys.platform == "win32":
 load_dotenv()
 
 
+def _sanitize_uri(uri: str) -> str:
+    """Mask password in MongoDB connection string for safe printing."""
+    return re.sub(r"://([^:]+):([^@]+)@", r"://\1:****@", uri)
+
+
 async def test_mongodb_connection():
-    """Test MongoDB Atlas connection"""
+    """Test MongoDB Atlas connection with explicit certifi CA bundle"""
     from motor.motor_asyncio import AsyncIOMotorClient
 
     mongodb_url = os.getenv(
         "MONGODB_URL",
         os.getenv("MONGODB_URI", "mongodb+srv://priyanshu1624:priyanshu1624a@cluster0.h5tji.mongodb.net/?appName=Cluster0")
     )
+    masked_url = _sanitize_uri(mongodb_url)
 
     print("\n" + "=" * 80)
-    print("MONGODB CONNECTION TEST")
+    print("MONGODB ATLAS CONNECTION TEST")
     print("=" * 80)
-    print(f"Connection String (first 80 chars): {mongodb_url[:80]}...")
+    print(f"Connection String (sanitized): {masked_url[:80]}...")
+    print(f"certifi CA Bundle Path: {certifi.where()}")
     print("=" * 80)
 
     try:
-        # Create client
-        client = AsyncIOMotorClient(
-            mongodb_url,
-            serverSelectionTimeoutMS=5000,
-            connectTimeoutMS=5000
-        )
+        client_kwargs = {
+            "serverSelectionTimeoutMS": 5000,
+            "connectTimeoutMS": 5000,
+        }
+        if "mongodb+srv://" in mongodb_url or "tls=true" in mongodb_url.lower() or "ssl=true" in mongodb_url.lower():
+            client_kwargs["tlsCAFile"] = certifi.where()
 
-        # Test connection
+        client = AsyncIOMotorClient(mongodb_url, **client_kwargs)
+
         print("\nAttempting to connect to MongoDB Atlas...")
         await client.admin.command("ping")
         print("✅ SUCCESS: MongoDB Atlas connection established!")
         print("✅ MongoDB is responding correctly to ping command")
 
-        # Try serverInfo or db stats
         try:
             db = client.get_database("physioverse")
             stats = await db.command("dbStats")
@@ -50,7 +59,6 @@ async def test_mongodb_connection():
         except Exception:
             print("✅ Database handle initialized successfully")
 
-        # Close connection
         client.close()
         print("✅ Connection closed successfully\n")
         return True
@@ -62,7 +70,7 @@ async def test_mongodb_connection():
         print("   1. MongoDB Atlas cluster is active")
         print("   2. Username and password are correct")
         print("   3. Cluster name is correct (not <cluster>)")
-        print("   4. IP whitelist includes your current IP")
+        print("   4. Network Access / IP whitelist includes 0.0.0.0/0 on Render")
         print("   5. Connection string has no special character issues\n")
         return False
 

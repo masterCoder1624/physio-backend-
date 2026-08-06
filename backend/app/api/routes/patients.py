@@ -1,3 +1,4 @@
+import logging
 from typing import List, Optional
 from fastapi import APIRouter, Depends, status, Query
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -9,6 +10,7 @@ from app.api.dependencies.auth import get_current_user
 from app.models.mongo_models import UserDocument
 
 router = APIRouter(prefix="/patients", tags=["Patient Module"])
+logger = logging.getLogger("physioverse.patients")
 
 
 @router.post("", response_model=APIResponse[PatientResponse], status_code=status.HTTP_201_CREATED)
@@ -17,8 +19,16 @@ async def create_patient(
     db: AsyncIOMotorDatabase = Depends(get_db),
     current_user: UserDocument = Depends(get_current_user),
 ):
+    logger.info(
+        "Create patient request user_id=%s name_present=%s phone_present=%s appointment_date=%s",
+        current_user.id,
+        bool(req.name or req.emergency_contact_name),
+        bool(req.phone or req.emergency_contact_phone),
+        req.appointment_date,
+    )
     service = PatientService(db)
     patient = await service.create_patient_profile(req, current_user.id)
+    logger.info("Patient created patient_id=%s user_id=%s", patient.id, current_user.id)
     return APIResponse(message="Patient added successfully", data=PatientResponse.model_validate(patient))
 
 

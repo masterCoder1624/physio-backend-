@@ -12,6 +12,8 @@ from app.core.security import (
     decode_token,
 )
 from app.schemas.auth import UserRegisterRequest, UserLoginRequest, TokenResponse
+from app.schemas.user import UserUpdateRequest
+from app.models.mongo_models import UserDocument
 
 
 class AuthService:
@@ -122,3 +124,10 @@ class AuthService:
             full_name=full_name,
             role=role_str,
         )
+
+    async def update_profile(self, user_id: str, req: UserUpdateRequest) -> UserDocument:
+        """Update only the authenticated user's editable profile fields."""
+        updated = await self.user_repo.update(user_id, req.model_dump(exclude_unset=True))
+        if not updated:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User profile not found")
+        return updated

@@ -18,6 +18,8 @@ class PatientCreateRequest(BaseModel):
     emergency_contact_phone: Optional[str] = None
     primary_condition: Optional[str] = None
     medical_history: Optional[str] = None
+    appointment_date: Optional[date] = None
+    status: Optional[str] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -49,6 +51,8 @@ class PatientUpdateRequest(BaseModel):
     emergency_contact_phone: Optional[str] = None
     primary_condition: Optional[str] = None
     medical_history: Optional[str] = None
+    appointment_date: Optional[date] = None
+    status: Optional[str] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -80,6 +84,8 @@ class PatientResponse(BaseModel):
     emergency_contact_phone: Optional[str] = None
     primary_condition: str
     medical_history: Optional[str] = None
+    appointment_date: Optional[date] = None
+    status: str = "active"
     created_at: datetime
     user: Optional[UserResponse] = None
 

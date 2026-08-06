@@ -3,10 +3,11 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.database.connection import connect_to_mongo, close_mongo_connection, db
-from app.api.routes import auth_router, patients_router, payments_router
+from app.api.routes import auth_router, patients_router, payments_router, billing_router
 from keep_alive import start_keep_alive, stop_keep_alive
 
 # Setup Logging
@@ -57,6 +58,12 @@ app = FastAPI(
     redoc_url="/redoc",
     lifespan=lifespan,
 )
+
+# PDFs are written to a configurable, Render-persistent directory when one is
+# supplied.  The mount makes each returned pdf_path directly usable by Flutter.
+pdf_storage_dir = os.getenv("PDF_STORAGE_DIR", "/tmp/physioverse-pdfs")
+os.makedirs(pdf_storage_dir, exist_ok=True)
+app.mount(f"{settings.API_V1_STR}/files", StaticFiles(directory=pdf_storage_dir), name="files")
 
 # Custom Middlewares - Only in production
 if settings.ENVIRONMENT == "production":
@@ -128,6 +135,7 @@ async def readiness_check():
 app.include_router(auth_router, prefix=settings.API_V1_STR)
 app.include_router(patients_router, prefix=settings.API_V1_STR)
 app.include_router(payments_router, prefix=settings.API_V1_STR)
+app.include_router(billing_router, prefix=settings.API_V1_STR)
 
 if __name__ == "__main__":
     import uvicorn

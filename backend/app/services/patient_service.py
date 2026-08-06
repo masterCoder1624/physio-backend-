@@ -31,6 +31,8 @@ class PatientService:
             "emergency_contact_phone": phone_val,
             "primary_condition": condition_val,
             "medical_history": req.medical_history,
+            "appointment_date": str(req.appointment_date) if req.appointment_date else None,
+            "status": req.status or "active",
         }
         return await self.patient_repo.create(patient_data)
 

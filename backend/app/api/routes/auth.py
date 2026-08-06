@@ -3,7 +3,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.database.session import get_db
 from app.services.auth_service import AuthService
 from app.schemas.auth import UserRegisterRequest, UserLoginRequest, RefreshTokenRequest, TokenResponse
-from app.schemas.user import UserResponse
+from app.schemas.user import UserResponse, UserUpdateRequest
 from app.schemas.common import APIResponse
 from app.api.dependencies.auth import get_current_user
 from app.models.mongo_models import UserDocument
@@ -35,3 +35,13 @@ async def refresh_token(req: RefreshTokenRequest, db: AsyncIOMotorDatabase = Dep
 @router.get("/me", response_model=APIResponse[UserResponse])
 async def get_me(current_user: UserDocument = Depends(get_current_user)):
     return APIResponse(message="User profile retrieved", data=UserResponse.model_validate(current_user))
+
+
+@router.put("/me", response_model=APIResponse[UserResponse])
+async def update_me(
+    req: UserUpdateRequest,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    current_user: UserDocument = Depends(get_current_user),
+):
+    user = await AuthService(db).update_profile(current_user.id, req)
+    return APIResponse(message="User profile updated", data=UserResponse.model_validate(user))

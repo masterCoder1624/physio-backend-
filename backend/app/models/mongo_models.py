@@ -81,6 +81,8 @@ class PatientDocument(MongoBaseDocument):
     emergency_contact_phone: Optional[str] = None
     primary_condition: str
     medical_history: Optional[str] = None
+    appointment_date: Optional[str] = None
+    status: str = "active"
 
 
 class AvailabilityDocument(MongoBaseDocument):

@@ -13,11 +13,13 @@ class PatientService:
         self.patient_repo = BaseRepository(PatientDocument, db, collection_name="patients")
         self.user_repo = BaseRepository(UserDocument, db, collection_name="users")
 
-    async def patient_exists(self, user_id: str, phone: Optional[str] = None) -> bool:
-        """Return True if a patient with the given user_id (and optionally phone) already exists."""
+    async def patient_exists(self, user_id: str, phone: Optional[str] = None, name: Optional[str] = None) -> bool:
+        """Return True only when user_id + phone + name ALL match (exact duplicate)."""
         query: Dict[str, Any] = {"user_id": user_id}
         if phone:
             query["emergency_contact_phone"] = phone
+        if name:
+            query["emergency_contact_name"] = name
         doc = await self.patient_repo.collection.find_one(query, {"_id": 1})
         return doc is not None
 

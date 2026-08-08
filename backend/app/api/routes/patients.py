@@ -58,9 +58,9 @@ async def create_patient(
 
     service = PatientService(db)
 
-    # ── 3. Duplicate check (user_id + phone) ──────────────────────────────
+    # ── 3. Duplicate check (user_id + phone + name) ──────────────────────
     try:
-        already_exists = await service.patient_exists(target_user_id, patient_phone)
+        already_exists = await service.patient_exists(target_user_id, patient_phone, patient_name)
     except Exception as exc:
         logger.error("Duplicate check failed user_id=%s error=%s", target_user_id, exc, exc_info=True)
         raise HTTPException(

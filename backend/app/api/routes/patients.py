@@ -1,6 +1,6 @@
 import logging
 from typing import List, Optional
-from fastapi import APIRouter, Depends, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.database.session import get_db
 from app.services.patient_service import PatientService
@@ -19,17 +19,100 @@ async def create_patient(
     db: AsyncIOMotorDatabase = Depends(get_db),
     current_user: UserDocument = Depends(get_current_user),
 ):
+    # ── 1. Resolve effective values ───────────────────────────────────────
+    target_user_id = req.user_id or str(current_user.id)
+    patient_name   = req.name or req.emergency_contact_name
+    patient_phone  = req.phone or req.emergency_contact_phone
+    injury_type    = req.condition or req.primary_condition
+    age_present    = req.date_of_birth is not None
+
+    # ── 2. Required-field validation ──────────────────────────────────────
+    missing = []
+    if not target_user_id:
+        missing.append("user_id")
+    if not patient_name:
+        missing.append("name")
+    if not patient_phone:
+        missing.append("phone")
+    if not age_present:
+        missing.append("age / date_of_birth")
+    if not injury_type:
+        missing.append("injury_type / condition")
+
+    if missing:
+        logger.warning("Create patient rejected – missing fields: %s", missing)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "success": False,
+                "message": f"Required fields missing: {', '.join(missing)}",
+                "error_code": "MISSING_REQUIRED_FIELDS",
+                "missing_fields": missing,
+            },
+        )
+
     logger.info(
-        "Create patient request user_id=%s name_present=%s phone_present=%s appointment_date=%s",
-        current_user.id,
-        bool(req.name or req.emergency_contact_name),
-        bool(req.phone or req.emergency_contact_phone),
-        req.appointment_date,
+        "Create patient request user_id=%s name=%s phone=%s appointment_date=%s",
+        target_user_id, patient_name, patient_phone, req.appointment_date,
     )
+
     service = PatientService(db)
-    patient = await service.create_patient_profile(req, current_user.id)
-    logger.info("Patient created patient_id=%s user_id=%s", patient.id, current_user.id)
-    return APIResponse(message="Patient added successfully", data=PatientResponse.model_validate(patient))
+
+    # ── 3. Duplicate check (user_id + phone) ──────────────────────────────
+    try:
+        already_exists = await service.patient_exists(target_user_id, patient_phone)
+    except Exception as exc:
+        logger.error("Duplicate check failed user_id=%s error=%s", target_user_id, exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "success": False,
+                "message": "Unable to verify patient record. Please try again.",
+                "error_code": "DB_CHECK_FAILED",
+            },
+        )
+
+    if already_exists:
+        logger.warning("Duplicate patient blocked user_id=%s phone=%s", target_user_id, patient_phone)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "success": False,
+                "message": "Patient already exists",
+                "error_code": "DUPLICATE_PATIENT",
+            },
+        )
+
+    # ── 4. Insert ─────────────────────────────────────────────────────────
+    try:
+        patient = await service.create_patient_profile(req, target_user_id)
+    except Exception as exc:
+        err_str = str(exc)
+        logger.error("Patient insert failed user_id=%s error=%s", target_user_id, exc, exc_info=True)
+        # Belt-and-braces: catch any MongoDB E11000 duplicate that slips through
+        if "duplicate key" in err_str.lower() or "E11000" in err_str:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "success": False,
+                    "message": "Patient already exists",
+                    "error_code": "DUPLICATE_PATIENT",
+                },
+            )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "success": False,
+                "message": "Unable to save patient. Please try again.",
+                "error_code": "PATIENT_CREATE_FAILED",
+            },
+        )
+
+    logger.info("Patient created patient_id=%s user_id=%s", patient.id, target_user_id)
+    return APIResponse(
+        message="Patient added successfully",
+        data=PatientResponse.model_validate(patient),
+    )
 
 
 @router.get("", response_model=APIResponse[List[PatientResponse]])

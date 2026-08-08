@@ -1,4 +1,5 @@
 from typing import List, Optional, Dict, Any
+from datetime import datetime, timezone
 from fastapi import HTTPException, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.models.mongo_models import PatientDocument, UserDocument
@@ -12,14 +13,23 @@ class PatientService:
         self.patient_repo = BaseRepository(PatientDocument, db, collection_name="patients")
         self.user_repo = BaseRepository(UserDocument, db, collection_name="users")
 
+    async def patient_exists(self, user_id: str, phone: Optional[str] = None) -> bool:
+        """Return True if a patient with the given user_id (and optionally phone) already exists."""
+        query: Dict[str, Any] = {"user_id": user_id}
+        if phone:
+            query["emergency_contact_phone"] = phone
+        doc = await self.patient_repo.collection.find_one(query, {"_id": 1})
+        return doc is not None
+
     async def create_patient_profile(self, req: PatientCreateRequest, current_user_id: str) -> PatientDocument:
         """Create a patient profile associated with a user account in MongoDB."""
         target_user_id = req.user_id or current_user_id
-        
+
         patient_name = req.name or req.emergency_contact_name or "Patient"
         condition_val = req.condition or req.primary_condition or "General Physiotherapy"
         phone_val = req.phone or req.emergency_contact_phone
         gender_val = req.gender.value if hasattr(req.gender, "value") else req.gender
+        now = datetime.now(timezone.utc)
 
         patient_data = {
             "user_id": target_user_id,
@@ -33,6 +43,8 @@ class PatientService:
             "medical_history": req.medical_history,
             "appointment_date": str(req.appointment_date) if req.appointment_date else None,
             "status": req.status or "active",
+            "created_at": now,
+            "updated_at": now,
         }
         return await self.patient_repo.create(patient_data)
 

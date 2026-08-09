@@ -10,6 +10,8 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from pydantic import BaseModel, Field
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
+import io
+from motor.motor_asyncio import AsyncIOMotorGridFSBucket
 
 from app.api.dependencies.auth import get_current_user
 from app.database.session import get_db
@@ -50,11 +52,8 @@ async def generate_pdf(
             )
 
     filename = f"invoices/{uuid.uuid4().hex}.pdf"
-    storage_dir = Path(os.getenv("PDF_STORAGE_DIR", "/tmp/physioverse-pdfs"))
-    output_path = storage_dir / filename
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    pdf = canvas.Canvas(str(output_path), pagesize=letter)
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=letter)
     pdf.setTitle("PhysioVerse invoice")
     pdf.setFont("Helvetica-Bold", 20)
     pdf.drawString(72, 740, "PhysioVerse Invoice")
@@ -67,6 +66,16 @@ async def generate_pdf(
     pdf.drawString(72, 634, f"Paid: INR {payload.paid_amount:.2f}")
     pdf.drawString(72, 612, f"Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}")
     pdf.save()
+    pdf_bytes = buffer.getvalue()
+    buffer.close()
+
+    # Upload to GridFS
+    fs = AsyncIOMotorGridFSBucket(db)
+    await fs.upload_from_stream(
+        filename,
+        pdf_bytes,
+        metadata={"contentType": "application/pdf"}
+    )
 
     pdf_path = f"/api/v1/files/{filename}"
     pdf_url = str(request.base_url).rstrip("/") + pdf_path

@@ -59,11 +59,38 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# PDFs are written to a configurable, Render-persistent directory when one is
-# supplied.  The mount makes each returned pdf_path directly usable by Flutter.
-pdf_storage_dir = os.getenv("PDF_STORAGE_DIR", "/tmp/physioverse-pdfs")
-os.makedirs(pdf_storage_dir, exist_ok=True)
-app.mount(f"{settings.API_V1_STR}/files", StaticFiles(directory=pdf_storage_dir), name="files")
+from fastapi.responses import StreamingResponse
+from fastapi import HTTPException
+from motor.motor_asyncio import AsyncIOMotorGridFSBucket
+
+@app.get(f"{settings.API_V1_STR}/files/{{filename:path}}")
+async def get_file(filename: str):
+    if db.db is None:
+        raise HTTPException(status_code=500, detail="Database not initialized")
+    fs = AsyncIOMotorGridFSBucket(db.db)
+    try:
+        cursor = fs.find({"filename": filename})
+        file_docs = await cursor.to_list(length=1)
+        if not file_docs:
+            raise HTTPException(status_code=404, detail="File not found")
+        
+        # We need to manually stream from GridOut in motor
+        grid_out = await fs.open_download_stream(file_docs[0]["_id"])
+        
+        async def stream_generator():
+            while True:
+                chunk = await grid_out.readchunk()
+                if not chunk:
+                    break
+                yield chunk
+                
+        return StreamingResponse(
+            stream_generator(), 
+            media_type=file_docs[0].get("metadata", {}).get("contentType", "application/pdf")
+        )
+    except Exception as e:
+        logger.error(f"Error serving gridfs file {filename}: {e}")
+        raise HTTPException(status_code=404, detail="File not found")
 
 # Custom Middlewares - Only in production
 if settings.ENVIRONMENT == "production":

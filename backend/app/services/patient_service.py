@@ -1,4 +1,5 @@
 from typing import List, Optional, Dict, Any
+import uuid
 from datetime import datetime, timezone
 from fastapi import HTTPException, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -14,19 +15,29 @@ class PatientService:
         self.patient_repo = BaseRepository(PatientDocument, db, collection_name="patients")
         self.user_repo = BaseRepository(UserDocument, db, collection_name="users")
 
-    async def patient_exists(self, user_id: str) -> bool:
-        """Return True if ANY patient profile already exists for this user_id.
-
-        The MongoDB unique index is on user_id alone, so we must check
-        user_id alone — adding phone/name to the query can give a False
-        negative and let insert_one() hit the E11000 constraint.
-        """
-        doc = await self.patient_repo.collection.find_one({"user_id": user_id}, {"_id": 1})
+    async def patient_exists(self, patient_user_id: str) -> bool:
+        """Return True if a patient profile already exists for this patient_user_id."""
+        doc = await self.patient_repo.collection.find_one({"user_id": patient_user_id}, {"_id": 1})
         return doc is not None
 
-    async def create_patient_profile(self, req: PatientCreateRequest, current_user_id: str) -> PatientDocument:
-        """Create a patient profile associated with a user account in MongoDB."""
-        target_user_id = req.user_id or current_user_id
+    async def create_patient_profile(
+        self,
+        req: PatientCreateRequest,
+        physio_user_id: str,
+    ) -> PatientDocument:
+        """Create a patient profile linked to the creating physiotherapist.
+
+        Architecture:
+          patient.user_id           = fresh UUID (unique per patient, NOT the physio's ID)
+          patient.physiotherapist_id = physio_user_id (the logged-in physio)
+
+        Patients do not have login accounts in this system.  A new UUID is
+        generated as the patient's stable unique identifier so the unique
+        user_id index is always satisfied and multiple patients can belong
+        to the same physiotherapist.
+        """
+        # Generate a stable, unique ID for this patient — never use the physio's ID
+        patient_user_id = str(uuid.uuid4())
 
         patient_name = req.name or req.emergency_contact_name or "Patient"
         condition_val = req.condition or req.primary_condition or "General Physiotherapy"
@@ -35,8 +46,8 @@ class PatientService:
         now = datetime.now(timezone.utc)
 
         patient_data = {
-            "user_id": target_user_id,
-            "physiotherapist_id": req.physiotherapist_id,
+            "user_id": patient_user_id,           # unique per patient (fresh UUID)
+            "physiotherapist_id": physio_user_id, # the physio who created this patient
             "date_of_birth": str(req.date_of_birth) if req.date_of_birth else None,
             "gender": gender_val,
             "blood_group": req.blood_group,
@@ -52,7 +63,7 @@ class PatientService:
         try:
             return await self.patient_repo.create(patient_data)
         except DuplicateKeyError:
-            # Race condition: two simultaneous requests both passed the pre-check
+            # Extremely unlikely with a fresh UUID, but handled for safety
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={

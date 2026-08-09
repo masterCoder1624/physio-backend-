@@ -20,16 +20,14 @@ async def create_patient(
     db: AsyncIOMotorDatabase = Depends(get_db),
     current_user: UserDocument = Depends(get_current_user),
 ):
-    # ── 1. Resolve effective values ───────────────────────────────────────
-    target_user_id = req.user_id or str(current_user.id)
-    patient_name   = req.name or req.emergency_contact_name
-    patient_phone  = req.phone or req.emergency_contact_phone
-    injury_type    = req.condition or req.primary_condition
+    # ── 1. Resolve display values for validation/logging ──────────────────
+    patient_name  = req.name or req.emergency_contact_name
+    patient_phone = req.phone or req.emergency_contact_phone
+    injury_type   = req.condition or req.primary_condition
+    physio_id     = str(current_user.id)   # always the authenticated physio
 
     # ── 2. Required-field validation ──────────────────────────────────────
     missing = []
-    if not target_user_id:
-        missing.append("user_id")
     if not patient_name:
         missing.append("name")
     if not patient_phone:
@@ -50,46 +48,22 @@ async def create_patient(
         )
 
     logger.info(
-        "Create patient request user_id=%s name=%s phone=%s appointment_date=%s",
-        target_user_id, patient_name, patient_phone, req.appointment_date,
+        "Create patient request physio_id=%s name=%s phone=%s appointment_date=%s",
+        physio_id, patient_name, patient_phone, req.appointment_date,
     )
 
     service = PatientService(db)
 
-    # ── 3. Duplicate check (user_id only — matches the unique index) ──────
+    # ── 3. Insert ──────────────────────────────────────────────────────────
+    # patient.user_id is a fresh UUID generated inside the service — no
+    # pre-check needed because UUIDs are globally unique by construction.
     try:
-        already_exists = await service.patient_exists(target_user_id)
-    except Exception as exc:
-        logger.error("Duplicate check failed user_id=%s error=%s", target_user_id, exc, exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={
-                "success": False,
-                "message": "Unable to verify patient record. Please try again.",
-                "error_code": "DB_CHECK_FAILED",
-            },
-        )
-
-    if already_exists:
-        logger.warning("Duplicate patient blocked user_id=%s phone=%s", target_user_id, patient_phone)
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "success": False,
-                "message": "Patient already exists",
-                "error_code": "DUPLICATE_PATIENT",
-            },
-        )
-
-    # ── 4. Insert ─────────────────────────────────────────────────────────
-    try:
-        patient = await service.create_patient_profile(req, target_user_id)
+        patient = await service.create_patient_profile(req, physio_id)
     except HTTPException:
-        # Re-raise clean 409s produced by the service layer (race-condition DuplicateKeyError)
         raise
     except DuplicateKeyError:
-        # Belt-and-braces: catch E11000 that bypasses the service wrapper
-        logger.warning("DuplicateKeyError at route level user_id=%s", target_user_id)
+        # Belt-and-braces: UUID collision is astronomically unlikely but handled
+        logger.warning("DuplicateKeyError at route level physio_id=%s", physio_id)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
@@ -99,7 +73,7 @@ async def create_patient(
             },
         )
     except Exception as exc:
-        logger.error("Patient insert failed user_id=%s error=%s", target_user_id, exc, exc_info=True)
+        logger.error("Patient insert failed physio_id=%s error=%s", physio_id, exc, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
@@ -109,11 +83,12 @@ async def create_patient(
             },
         )
 
-    logger.info("Patient created patient_id=%s user_id=%s", patient.id, target_user_id)
+    logger.info("Patient created patient_id=%s physio_id=%s", patient.id, physio_id)
     return APIResponse(
         message="Patient added successfully",
         data=PatientResponse.model_validate(patient),
     )
+
 
 
 @router.get("", response_model=APIResponse[List[PatientResponse]])

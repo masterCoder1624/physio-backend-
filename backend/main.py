@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.database.connection import connect_to_mongo, close_mongo_connection, db
-from app.api.routes import auth_router, patients_router, payments_router, billing_router
+from app.api.routes import auth_router, patients_router, payments_router, billing_router, analytics_router
 from keep_alive import start_keep_alive, stop_keep_alive
 
 # Setup Logging
@@ -136,6 +136,7 @@ app.include_router(auth_router, prefix=settings.API_V1_STR)
 app.include_router(patients_router, prefix=settings.API_V1_STR)
 app.include_router(payments_router, prefix=settings.API_V1_STR)
 app.include_router(billing_router, prefix=settings.API_V1_STR)
+app.include_router(analytics_router, prefix=settings.API_V1_STR)
 
 if __name__ == "__main__":
     import uvicorn

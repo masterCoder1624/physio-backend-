@@ -2,6 +2,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
 from fastapi import HTTPException, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from pymongo.errors import DuplicateKeyError
 from app.models.mongo_models import PatientDocument, UserDocument
 from app.repositories.base_repository import BaseRepository
 from app.schemas.patient import PatientCreateRequest, PatientUpdateRequest
@@ -13,14 +14,14 @@ class PatientService:
         self.patient_repo = BaseRepository(PatientDocument, db, collection_name="patients")
         self.user_repo = BaseRepository(UserDocument, db, collection_name="users")
 
-    async def patient_exists(self, user_id: str, phone: Optional[str] = None, name: Optional[str] = None) -> bool:
-        """Return True only when user_id + phone + name ALL match (exact duplicate)."""
-        query: Dict[str, Any] = {"user_id": user_id}
-        if phone:
-            query["emergency_contact_phone"] = phone
-        if name:
-            query["emergency_contact_name"] = name
-        doc = await self.patient_repo.collection.find_one(query, {"_id": 1})
+    async def patient_exists(self, user_id: str) -> bool:
+        """Return True if ANY patient profile already exists for this user_id.
+
+        The MongoDB unique index is on user_id alone, so we must check
+        user_id alone — adding phone/name to the query can give a False
+        negative and let insert_one() hit the E11000 constraint.
+        """
+        doc = await self.patient_repo.collection.find_one({"user_id": user_id}, {"_id": 1})
         return doc is not None
 
     async def create_patient_profile(self, req: PatientCreateRequest, current_user_id: str) -> PatientDocument:
@@ -48,7 +49,19 @@ class PatientService:
             "created_at": now,
             "updated_at": now,
         }
-        return await self.patient_repo.create(patient_data)
+        try:
+            return await self.patient_repo.create(patient_data)
+        except DuplicateKeyError:
+            # Race condition: two simultaneous requests both passed the pre-check
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "success": False,
+                    "message": "Patient already exists",
+                    "error_code": "DUPLICATE_PATIENT",
+                },
+            )
+
 
     async def get_patient(self, patient_id: str) -> PatientDocument:
         """Get patient by ID."""

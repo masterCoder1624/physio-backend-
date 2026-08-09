@@ -1,6 +1,7 @@
 import logging
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from pymongo.errors import DuplicateKeyError
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.database.session import get_db
 from app.services.patient_service import PatientService
@@ -55,9 +56,9 @@ async def create_patient(
 
     service = PatientService(db)
 
-    # ── 3. Duplicate check (user_id + phone + name) ──────────────────────
+    # ── 3. Duplicate check (user_id only — matches the unique index) ──────
     try:
-        already_exists = await service.patient_exists(target_user_id, patient_phone, patient_name)
+        already_exists = await service.patient_exists(target_user_id)
     except Exception as exc:
         logger.error("Duplicate check failed user_id=%s error=%s", target_user_id, exc, exc_info=True)
         raise HTTPException(
@@ -83,19 +84,22 @@ async def create_patient(
     # ── 4. Insert ─────────────────────────────────────────────────────────
     try:
         patient = await service.create_patient_profile(req, target_user_id)
+    except HTTPException:
+        # Re-raise clean 409s produced by the service layer (race-condition DuplicateKeyError)
+        raise
+    except DuplicateKeyError:
+        # Belt-and-braces: catch E11000 that bypasses the service wrapper
+        logger.warning("DuplicateKeyError at route level user_id=%s", target_user_id)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "success": False,
+                "message": "Patient already exists",
+                "error_code": "DUPLICATE_PATIENT",
+            },
+        )
     except Exception as exc:
-        err_str = str(exc)
         logger.error("Patient insert failed user_id=%s error=%s", target_user_id, exc, exc_info=True)
-        # Belt-and-braces: catch any MongoDB E11000 duplicate that slips through
-        if "duplicate key" in err_str.lower() or "E11000" in err_str:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={
-                    "success": False,
-                    "message": "Patient already exists",
-                    "error_code": "DUPLICATE_PATIENT",
-                },
-            )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={

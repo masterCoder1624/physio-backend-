@@ -76,6 +76,12 @@ async def create_indexes():
             await db.db["users"].create_index("role")
             await db.db["patients"].create_index("user_id")
             await db.db["patients"].create_index("physiotherapist_id")
+            await db.db["invoices"].create_index("patient_id")
+            await db.db["invoices"].create_index(
+                [("patient_id", 1), ("generation_key", 1)],
+                unique=True,
+                partialFilterExpression={"generation_key": {"$exists": True}},
+            )
             await db.db["refresh_tokens"].create_index("token", unique=True)
             await db.db["refresh_tokens"].create_index("user_id")
             logger.info("✅ Users & Patients collection indexes verified")

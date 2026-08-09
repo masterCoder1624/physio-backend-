@@ -203,10 +203,17 @@ class PaymentDocument(MongoBaseDocument):
 
 class InvoiceDocument(MongoBaseDocument):
     patient_id: Optional[str] = None
+    physiotherapist_id: Optional[str] = None
     payment_id: Optional[str] = None
     invoice_number: str
     issued_date: datetime = Field(default_factory=utc_now)
     pdf_url: Optional[str] = None
+    pdf_filename: Optional[str] = None
+    pdf_file_id: Optional[str] = None
+    total_amount: float = 0.0
+    paid_amount: float = 0.0
+    payment_status: str = "pending"
+    generation_key: Optional[str] = None
 
 
 class MessageDocument(MongoBaseDocument):

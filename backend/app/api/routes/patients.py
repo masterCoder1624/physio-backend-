@@ -7,8 +7,10 @@ from app.database.session import get_db
 from app.services.patient_service import PatientService
 from app.schemas.patient import PatientCreateRequest, PatientUpdateRequest, PatientResponse
 from app.schemas.common import APIResponse, PaginationMeta
+from app.schemas.invoice import InvoiceResponse
 from app.api.dependencies.auth import get_current_user
-from app.models.mongo_models import UserDocument
+from app.models.mongo_models import InvoiceDocument, PatientDocument, UserDocument
+from app.repositories.base_repository import BaseRepository
 
 router = APIRouter(prefix="/patients", tags=["Patient Module"])
 logger = logging.getLogger("physioverse.patients")
@@ -120,6 +122,33 @@ async def get_patient(
     service = PatientService(db)
     patient = await service.get_patient(patient_id)
     return APIResponse(message="Patient details retrieved", data=PatientResponse.model_validate(patient))
+
+
+@router.get("/{patient_id}/invoices", response_model=APIResponse[list[InvoiceResponse]])
+async def get_patient_invoices(
+    patient_id: str,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+    current_user: UserDocument = Depends(get_current_user),
+):
+    patient_repo = BaseRepository(PatientDocument, db, collection_name="patients")
+    patient = await patient_repo.get_by_id(patient_id)
+    if not patient:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "success": False,
+                "message": "Patient not found",
+                "error_code": "PATIENT_NOT_FOUND",
+            },
+        )
+
+    invoice_repo = BaseRepository(InvoiceDocument, db, collection_name="invoices")
+    invoices = await invoice_repo.get_multi(filters={"patient_id": patient_id}, limit=100)
+    return APIResponse(
+        message="Patient invoices retrieved successfully",
+        data=[InvoiceResponse.model_validate(invoice) for invoice in invoices],
+        meta=PaginationMeta(page=1, size=len(invoices), total_items=len(invoices), total_pages=1),
+    )
 
 
 @router.put("/{patient_id}", response_model=APIResponse[PatientResponse])

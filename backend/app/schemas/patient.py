@@ -2,6 +2,7 @@ from typing import Optional
 from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, model_validator, Field
 from app.models.models import GenderEnum
+from app.schemas.invoice import InvoiceResponse
 from app.schemas.user import UserResponse
 
 

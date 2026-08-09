@@ -202,7 +202,8 @@ class PaymentDocument(MongoBaseDocument):
 
 
 class InvoiceDocument(MongoBaseDocument):
-    payment_id: str
+    patient_id: Optional[str] = None
+    payment_id: Optional[str] = None
     invoice_number: str
     issued_date: datetime = Field(default_factory=utc_now)
     pdf_url: Optional[str] = None

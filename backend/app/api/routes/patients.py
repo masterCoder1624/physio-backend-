@@ -24,7 +24,6 @@ async def create_patient(
     patient_name   = req.name or req.emergency_contact_name
     patient_phone  = req.phone or req.emergency_contact_phone
     injury_type    = req.condition or req.primary_condition
-    age_present    = req.date_of_birth is not None
 
     # ── 2. Required-field validation ──────────────────────────────────────
     missing = []
@@ -34,8 +33,6 @@ async def create_patient(
         missing.append("name")
     if not patient_phone:
         missing.append("phone")
-    if not age_present:
-        missing.append("age / date_of_birth")
     if not injury_type:
         missing.append("injury_type / condition")
 

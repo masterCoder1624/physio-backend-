@@ -7,7 +7,7 @@ from app.repositories.base_repository import BaseRepository
 
 
 def _start_of_month(value: datetime) -> datetime:
-    return value.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    return value.replace(day=1, hour=0, minute=0, second=0, microsecond=0, tzinfo=value.tzinfo)
 
 
 def _offset_months(value: datetime, offset: int) -> datetime:
@@ -44,7 +44,13 @@ class AnalyticsService:
         new_patients = sum(
             1
             for doc in patient_docs
-            if doc.get("created_at") is not None and doc["created_at"] >= period_start
+            if doc.get("created_at") is not None
+            and (
+                doc["created_at"].replace(tzinfo=timezone.utc)
+                if doc["created_at"].tzinfo is None
+                else doc["created_at"]
+            )
+            >= period_start
         )
 
         paid_payments = []
